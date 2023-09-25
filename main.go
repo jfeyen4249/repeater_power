@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -68,12 +69,54 @@ func hexByteWithError(s string) (byte, error) {
 	return byte(val), nil
 }
 
+// Configuration represents the application configuration.
+type Configuration struct {
+	ACPortName string // COM port for AC
+	DCPortName string // COM port for DC
+	ACMode     bool   // AC mode (true for ON, false for NC)
+	DCMode     bool   // DC mode (true for ON, false for NC)
+}
+
+const configFileName = "config.json"
+
+func loadConfiguration() (Configuration, error) {
+	var config Configuration
+	file, err := os.Open(configFileName)
+	if err != nil {
+		return config, err
+	}
+	defer file.Close()
+
+	decoder := json.NewDecoder(file)
+	err = decoder.Decode(&config)
+	return config, err
+}
+
+func saveConfiguration(config Configuration) error {
+	file, err := os.Create(configFileName)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	err = encoder.Encode(config)
+	return err
+}
+
 func main() {
-	com5 := ComPort{Name: "COM5"}
-	com6 := ComPort{Name: "COM6"}
+	config, err := loadConfiguration()
+	if err != nil {
+		config = Configuration{
+			ACPortName: "COM2",
+			DCPortName: "COM3",
+			ACMode:     true, // Default to NO mode for AC
+			DCMode:     true, // Default to NO mode for DC
+		}
+	}
 
 	for {
-		clearScreen() // Clear the screen
+		clearScreen()
 		fmt.Println("")
 		fmt.Println("")
 		fmt.Println("  |-------------------------------------|")
@@ -82,16 +125,19 @@ func main() {
 		fmt.Println("  |-------------------------------------|")
 		fmt.Println("")
 		fmt.Println("")
-		fmt.Println("   1. AC Power On")
-		fmt.Println("   2. AC Power Off")
+		fmt.Println("   1. AC Power Off")
+		fmt.Println("   2. AC Power On")
 		fmt.Println("   -----------------")
-		fmt.Println("   3. DC Power On")
-		fmt.Println("   4. DC Power Off")
+		fmt.Println("   3. DC Power Off")
+		fmt.Println("   4. DC Power On")
 		fmt.Println("   -----------------")
 		fmt.Println("   5. AC Power Cycle")
 		fmt.Println("   6. DC Power Cycle")
 		fmt.Println("   -----------------")
-		fmt.Println("   C. Com Port Settings")
+		fmt.Println("   7. Change COM Ports")
+		fmt.Println("   8. Change Mode (NO/NC) for AC")
+		fmt.Println("   9. Change Mode (NO/NC) for DC")
+		fmt.Println("   C. Current Configuration")
 		fmt.Println("   I. Software Info")
 		fmt.Println("   E. Exit")
 		fmt.Println("")
@@ -104,57 +150,184 @@ func main() {
 		switch input {
 		case "1":
 			clearScreen()
-			com5.SendCommand("A0 01 01 A2")
-			fmt.Println("AC Power On")
+			comPort := ComPort{Name: config.ACPortName}
+			if config.ACMode {
+				comPort.SendCommand("A0 01 01 A2")
+			} else {
+				comPort.SendCommand("A0 01 00 A1")
+			}
+			fmt.Println("AC Power Off")
 		case "2":
 			clearScreen()
-			com5.SendCommand("A0 01 00 A1")
-			fmt.Println("AC Power Off")
+			comPort := ComPort{Name: config.ACPortName}
+			if config.ACMode {
+				comPort.SendCommand("A0 01 00 A1")
+			} else {
+				comPort.SendCommand("A0 01 01 A2")
+			}
+			fmt.Println("AC Power On")
 		case "3":
 			clearScreen()
-			com6.SendCommand("A0 01 01 A2")
-			fmt.Println("DC Power On")
+			comPort := ComPort{Name: config.DCPortName}
+			if config.DCMode {
+				comPort.SendCommand("A0 01 01 A2")
+			} else {
+				comPort.SendCommand("A0 01 00 A1")
+			}
+			fmt.Println("DC Power Off")
 		case "4":
 			clearScreen()
-			com6.SendCommand("A0 01 00 A1")
-			fmt.Println("DC Power Off")
+			comPort := ComPort{Name: config.DCPortName}
+			if config.DCMode {
+				comPort.SendCommand("A0 01 00 A1")
+			} else {
+				comPort.SendCommand("A0 01 01 A2")
+			}
+			fmt.Println("DC Power On")
 		case "5":
 			clearScreen()
+			fmt.Println("")
+		fmt.Println("")
 			fmt.Println("|-------------------------------------|")
 			fmt.Println("|        Power Cycling AC Power       |")
 			fmt.Println("|             Please wait...          |")
 			fmt.Println("|-------------------------------------|")
-			com5.SendCommand("A0 01 00 A1")
-			fmt.Println("Cycling AC Power (Turned off)")
+			comPort := ComPort{Name: config.ACPortName}
+			if config.ACMode {
+				comPort.SendCommand("A0 01 01 A2")
+				fmt.Println("Cycling AC Power (Turned Off)")
+				time.Sleep(2 * time.Second)
+				comPort.SendCommand("A0 01 00 A1")
+				fmt.Println("Cycling AC Power (Turned On)")
+			} else {
+				comPort.SendCommand("A0 01 00 A1")
+				fmt.Println("Cycling AC Power (Turned Off)")
+				time.Sleep(2 * time.Second)
+				comPort.SendCommand("A0 01 01 A2")
+				fmt.Println("Cycling AC Power (Turned On)")
+			}
 			time.Sleep(2 * time.Second)
-			com5.SendCommand("A0 01 01 A2")
-			fmt.Println("Cycling AC Power (Turned on)")
 		case "6":
 			clearScreen()
+			fmt.Println("")
+		fmt.Println("")
 			fmt.Println("  |-------------------------------------|")
 			fmt.Println("  |        Power Cycling DC Power       |")
 			fmt.Println("  |             Please wait...          |")
 			fmt.Println("  |-------------------------------------|")
-			com6.SendCommand("A0 01 00 A1")
-			fmt.Println("Cycling DC Power (Turned off)")
+			comPort := ComPort{Name: config.DCPortName}
+			if config.DCMode {
+				comPort.SendCommand("A0 01 01 A2")
+				fmt.Println("Cycling DC Power (Turned Off)")
+				time.Sleep(2 * time.Second)
+				comPort.SendCommand("A0 01 00 A1")
+				fmt.Println("Cycling DC Power (Turned On)")
+			} else {
+				comPort.SendCommand("A0 01 00 A1")
+				fmt.Println("Cycling DC Power (Turned Off)")
+				time.Sleep(2 * time.Second)
+				comPort.SendCommand("A0 01 01 A2")
+				fmt.Println("Cycling DC Power (Turned On)")
+			}
 			time.Sleep(2 * time.Second)
-			com6.SendCommand("A0 01 01 A2")
-			fmt.Println("Cycling DC Power (Turned on)")
-		case "e":
-			fmt.Println("Exiting...")
-		
-			return
+
+
+		case "7":
+			clearScreen()
+			fmt.Println("")
+		fmt.Println("")
+			fmt.Print("Enter new AC COM Port (e.g., COM4, or press Enter to keep it unchanged (", config.ACPortName,")): ")
+			acPort, _ := reader.ReadString('\n')
+			acPort = strings.TrimSpace(acPort)
+			if acPort != "" {
+				config.ACPortName = acPort
+			}
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Print("Enter new DC COM Port (e.g., COM6, or press Enter to keep it unchanged (", config.DCPortName,")): ")
+			dcPort, _ := reader.ReadString('\n')
+			dcPort = strings.TrimSpace(dcPort)
+			if dcPort != "" {
+				config.DCPortName = dcPort
+			}
+
+			err := saveConfiguration(config)
+			if err != nil {
+				fmt.Println("Error saving configuration:", err)
+			}
+			fmt.Println("")
+
+			fmt.Println("COM Ports changed and saved.")
+
+		case "8":
+			clearScreen()
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Println("  nc if the relay is wired on NC connector  | no if the relay is wired on NO connector ")
+			fmt.Print("  Select mode for AC (no/nc): ")
+
+			modeInput, _ := reader.ReadString('\n')
+			modeInput = strings.TrimSpace(modeInput)
+			if modeInput == "no" {
+				config.ACMode = true
+			} else if modeInput == "nc" {
+				config.ACMode = false
+			} else {
+				fmt.Println("Invalid mode. Please enter 'no' or 'nc'.")
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			err := saveConfiguration(config)
+			if err != nil {
+				fmt.Println("Error saving configuration:", err)
+			}
+			fmt.Println("")
+			fmt.Println("AC Mode changed and saved.")
+		case "9":
+			clearScreen()
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Println("  nc if the relay is wired on NC connector  | no if the relay is wired on NO connector ")
+			fmt.Print("Select mode for DC (NO/NC): ")
+			modeInput, _ := reader.ReadString('\n')
+			modeInput = strings.TrimSpace(modeInput)
+			if modeInput == "no" {
+				config.DCMode = true
+			} else if modeInput == "nc" {
+				config.DCMode = false
+			} else {
+				fmt.Println("Invalid mode. Please enter 'no' or 'nc'.")
+				time.Sleep(2 * time.Second)
+				continue
+			}
+
+			err := saveConfiguration(config)
+			if err != nil {
+				fmt.Println("Error saving configuration:", err)
+			}
+			fmt.Println("")
+			fmt.Println("DC Mode changed and saved.")
 		case "c":
 			clearScreen()
-			fmt.Println("  |----------------------------------------------|")
-			fmt.Println("  |              COM Port Settings               |")
-			fmt.Println("  | Set the COM Ports to match in Device Manager |")
-			fmt.Println("  |----------------------------------------------|")
-			fmt.Println("  | AC Power Relay: COM5  | DC Power Relay: COM6 |")
-			fmt.Println("  |----------------------------------------------|")
-			time.Sleep(6 * time.Second)
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Println("   |---------------|-----------------|---------------|")
+			fmt.Println("   |---------------|Relay Config Mode|    Com Port   |")
+			fmt.Println("   |---------------|-----------------|---------------|")
+			fmt.Println("   |   AC Relay    |", getModeText(config.ACMode), " |",config.ACPortName,"         |")
+			fmt.Println("   |---------------|-----------------|---------------|")
+			fmt.Println("   |   DC Relay    |", getModeText(config.DCMode), " |",config.DCPortName,"         |")
+			fmt.Println("   |---------------|-----------------|---------------|")
+
+			fmt.Println(" ")
+			fmt.Println(" ")
+			fmt.Println("Press Enter to continue...")
+			reader.ReadString('\n')
 		case "i":
 			clearScreen()
+			fmt.Println("")
+			fmt.Println("")
 			fmt.Println("  |----------------------------------------------|")
 			fmt.Println("  |      Repeater System Power Control App       |")
 			fmt.Println("  |                  v1.0 Rev A                  |")
@@ -170,12 +343,16 @@ func main() {
 			fmt.Println("  | https://github.com/jfeyen4249/repeater_power |")
 			fmt.Println("  |----------------------------------------------|")
 			time.Sleep(6 * time.Second)
-
+		case "e":
+			fmt.Println("Exiting...")
+			return
 		default:
-			fmt.Println("Invalid option. Please select a valid option (1-6, 0 to exit).")
+			fmt.Println("")
+			fmt.Println("")
+			fmt.Println("Invalid option. Please select a valid option (1-9, e to exit).")
 		}
 
-		time.Sleep(1 * time.Second) // Wait for 3 seconds before reloading the menu
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -194,4 +371,11 @@ func clearScreen() {
 
 func isWindows() bool {
 	return os.Getenv("OS") == "Windows_NT"
+}
+
+func getModeText(mode bool) string {
+	if mode {
+		return "Normally Open "
+	}
+	return "Normally Close"
 }
